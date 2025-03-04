@@ -82,7 +82,7 @@ class CNN_filter:
     #combinded = (combinded - combinded.min()) / (combinded.max() - combinded.min())
 
 
-path_detected_sudoku = "./Detected_sudoku_images/Sudoku_detected.jpg"
+path_detected_sudoku = "./Sudoku_detected.jpg"
 
 fil_cnn = CNN_filter(path_detected_sudoku).filtered_image()
-cv2.imwrite("CNN_edge_detection.jpg", fil_cnn)
+cv2.imwrite("CNN_edge_detection_4.jpg", fil_cnn)

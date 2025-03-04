@@ -15,7 +15,7 @@ def ObjectVision():
     model = YOLO(yolo_w)
 
         # Start webcam
-    cap = cv2.VideoCapture(0)
+    cap = cv2.VideoCapture(2) # 2 gir tilgang til mobil kamera
     cap.set(3, 640)
     cap.set(4, 480)
 
@@ -46,7 +46,7 @@ def ObjectVision():
                     pass
 
                     #if confidence > 50: # scan the image whit a confidence higher then 90% and use the harris algorithem to find connections(corners) to find celles
-                if confidence > 90:
+                if confidence > 95:
                     bouding_box = img[y1:y2, x1:x2]
 
                 else:
@@ -67,6 +67,6 @@ def ObjectVision():
 
 sudokupaper = ObjectVision()
 
-cv2.imwrite("Sudoku_detected.jpg", sudokupaper)
+cv2.imwrite("Sudoku_detected_4.jpg", sudokupaper)
 
 

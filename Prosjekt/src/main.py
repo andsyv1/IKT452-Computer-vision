@@ -1,62 +1,114 @@
 import cv2
 import numpy as np
-import matplotlib
-from matplotlib.pyplot import imshow
-from matplotlib import pyplot as plt
+from yolo_box_1 import ObjectVision
+from perspectiv_transform import PerspectivTransform
+from sudokugridprosessor import SudokuGridProcessor
+from ultralytics import YOLO
 
-filein = "./Filtered_sudoku_Images/Filtered_1_sudoku.jpg"
+# Laster inn klassifiseringsmodellen
+path_classify = "./yolo_Weights/classification_yolov8n.pt"
+classification_model = YOLO(path_classify)
 
-# white color mask
-img = cv2.imread(filein)
+def classify_cells(cells):
+    classified_digits = []
+    for cell in cells:
+        if len(cell.shape) == 2:
+            cell = cv2.cvtColor(cell, cv2.COLOR_GRAY2BGR)
+        results = classification_model(cell)
+        if results and len(results) > 0:
+            top_prediction = results[0]
+            class_id = int(top_prediction.probs.top1)
+            classified_digits.append(class_id)
+        else:
+            classified_digits.append(0)
+    return classified_digits
 
-gray = cv2.cvtColor(img,cv2.COLOR_BGR2GRAY)
+def format_sudoku_grid(classified_digits):
+    if len(classified_digits) != 81:
+        raise ValueError("Feil antall klassifiserte celler. Forventet 81.")
+    return np.array(classified_digits).reshape(9, 9)
 
-kernel_size = 5
-blur_gray = cv2.GaussianBlur(gray,(kernel_size, kernel_size),0)
+def is_valid_move(board, row, col, num):
+    for i in range(9):
+        if board[row][i] == num or board[i][col] == num:
+            return False
+    box_x, box_y = (row // 3) * 3, (col // 3) * 3
+    for i in range(3):
+        for j in range(3):
+            if board[box_x + i][box_y + j] == num:
+                return False
+    return True
 
-low_threshold = 50
-high_threshold = 150
-edges = cv2.Canny(blur_gray, low_threshold, high_threshold)
+def solve_sudoku(board):
+    empty_cell = [(r, c) for r in range(9) for c in range(9) if board[r][c] == 0]
+    
+    def backtrack(index=0):
+        if index == len(empty_cell):
+            return True
+        row, col = empty_cell[index]
+        for num in range(1, 10):
+            if is_valid_move(board, row, col, num):
+                board[row][col] = num
+                if backtrack(index + 1):
+                    return True
+                board[row][col] = 0
+        return False
+    
+    backtrack()
+    return board
 
-rho = 1  # distance resolution in pixels of the Hough grid
-theta = np.pi / 360  # angular resolution in radians of the Hough grid (180)
-threshold = 15  # minimum number of votes (intersections in Hough grid cell)
-min_line_length = 150  # minimum number of pixels making up a line (50)
-max_line_gap = 15  # maximum gap in pixels between connectable line segments (20)
-line_image = np.copy(img) * 0  # creating a blank to draw lines on
+def plot_sudoku_solution(image_path, solved_board):
+    image = cv2.imread(image_path)
+    if image is None:
+        print("Kunne ikke laste bildet.")
+        return
+    
+    font = cv2.FONT_HERSHEY_SIMPLEX
+    cell_size = image.shape[0] // 9
+    
+    for i in range(9):
+        for j in range(9):
+            num = solved_board[i][j]
+            if num != 0:
+                x, y = j * cell_size + cell_size // 3, i * cell_size + cell_size // 1.5
+                cv2.putText(image, str(num), (x, y), font, 1, (0, 255, 0), 2, cv2.LINE_AA)
+    
+    cv2.imshow("Løst Sudoku", image)
+    cv2.waitKey(0)
+    cv2.destroyAllWindows()
 
-# Run Hough on edge detected image
-# Output "lines" is an array containing endpoints of detected line segments
-lines = cv2.HoughLinesP(edges, rho, theta, threshold, np.array([]),
-                    min_line_length, max_line_gap)
-
-for line in lines:
-    for x1,y1,x2,y2 in line:
-        cv2.line(line_image,(x1,y1),(x2,y2),(255,0,0),5)
-
-min_length = 200
-filtered_lines = []
-
-for line in lines:
-    x1,y1,x2,y2 = line[0]
-    line_length = np.linalg.norm([x2-x1, y2-y1])
-    if line_length < min_length:
-        filtered_lines.append(line)
-
-line_filtered_image = np.zeros_like(img) # helt hvit bilde
-
-for line in filtered_lines:
-    x1,y1,x2,y2 = line[0]
-    cv2.line(line_filtered_image, (x1,y1), (x2,y2), (0, 255, 0), 2)
-
-lines_edges_filtered = cv2.addWeighted(img, 0.8, line_filtered_image, 1, 0)
-
-lines_edges = cv2.addWeighted(img, 0.8, line_image, 1, 0)
-
-plt.imshow(lines_edges_filtered)
-plt.title("Filtered lines")
-plt.show()
-
-plt.imshow(lines_edges)
-plt.title("Lines sudoku")
-plt.show()
+def main():
+    print("Kjører YOLO-deteksjon...")
+    sudoku_image = ObjectVision()
+    if sudoku_image is None:
+        print("Feil: Sudoku-brett ikke funnet.")
+        return
+    
+    image_path = "sudoku_detected.jpg"
+    cv2.imwrite(image_path, sudoku_image)
+    
+    print("Retter opp perspektivet...")
+    transformer = PerspectivTransform(image_path)
+    transformer.find_corners()
+    transformer.apply_perspective_transform()
+    transformed_image_path = "sudoku_warped.jpg"
+    cv2.imwrite(transformed_image_path, transformer.warped)
+    
+    print("Prosesserer Sudoku-rutenett...")
+    processor = SudokuGridProcessor(transformed_image_path)
+    processor.find_sudoku_lines()
+    processor.find_intersection_points()
+    processor.extract_cells()
+    
+    print("Klassifiserer tall i Sudoku-rutenettet...")
+    classified_digits = classify_cells(processor.cells)
+    sudoku_grid = format_sudoku_grid(classified_digits)
+    
+    print("Løst Sudoku-rutenett:")
+    solved_board = solve_sudoku(sudoku_grid)
+    print(np.array(solved_board))
+    
+    plot_sudoku_solution(transformed_image_path, solved_board)
+    
+if __name__ == "__main__":
+    main()
